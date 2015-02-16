@@ -41,9 +41,11 @@ __author__ = 'Benjamin A. Slack, iam@niamjneb.com'
 __version__ = '0.0.0.1'
 
 kBaseJobsPath = '/Volumes/JobsA'
-kBaseDisksPath = '/SGB-TITAN/_ReadyForBackup'
-kWorkingPath = '/SGB-TITAN/_ReadyForBackup'
+kBaseDisksPath = '/Volumes/SGB-TITAN/_ReadyForBackup'
+kWorkingPath = '/Volumes/SGB-TITAN/_ReadyForBackup'
 kJobFolderPrefix = '/Jobs'
+kTrashFolderPrefix = '/Trash'
+kDiscFolderPrefix = '/Disc'
 kFullSize = '4294967296'  # 4GB
 kFileName = 'test.xlsx'
 kPath = os.path.expanduser('~')
@@ -75,6 +77,12 @@ def generate_job_url(job):
     :return: the string of the URL to the job on the server
     """
 
+    if type(job) != type(''):
+        job = str(job)
+    folderNumber = job[len(job)-1:len(job)] #get the last number of the job
+    return kBaseJobsPath+kJobFolderPrefix+folderNumber+kSep+job
+
+
 
 def generate_working_url(job):
     """
@@ -82,6 +90,9 @@ def generate_working_url(job):
     :param job: the job number to generate a working folder for
     :return: the string of the URL of that working folder
     """
+    if type(job) != type(''):
+        job = str(job)
+    return kWorkingPath+kSep+job
 
 def generate_disc_url(disc):
     """
@@ -89,6 +100,9 @@ def generate_disc_url(disc):
     :param disc: the disc number to generate path to string for
     :return: the path to string
     """
+    if type(disc) != type(''):
+        disc = str(disc)
+    return kBaseDisksPath+kDiscFolderPrefix+disc
 
 
 def dump_trash(job):
@@ -97,6 +111,8 @@ def dump_trash(job):
     :param job: The job number to dump the trash of
     :return:
     """
+    deleteMe = generate_job_url(job)+kTrashFolderPrefix
+    return deleteMe
 
 
 def copy_job(job):
@@ -105,6 +121,9 @@ def copy_job(job):
     :param job: The job number to copy to the work folder
     :return: copy_url
     """
+    copyMeFrom = generate_job_url(job)
+    copyMeTo = generate_working_url(job)
+    return copyMeFrom, copyMeTo
 
 
 def zip_job(job):
@@ -172,3 +191,8 @@ def tag_excel(url, job, disc):
 
 if __name__ == "__main__":
     print(get_list(kURL))
+    print(generate_job_url(17545))
+    print(generate_working_url(17545))
+    print(generate_disc_url(1534))
+    print(dump_trash(15687))
+    print(copy_job(68975))
