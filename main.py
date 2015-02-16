@@ -35,6 +35,7 @@ II. With that List do the following:
 
 
 """
+import openpyxl, os
 
 __author__ = 'Benjamin A. Slack, iam@niamjneb.com'
 __version__ = '0.0.0.1'
@@ -44,9 +45,10 @@ kBaseDisksPath = '/SGB-TITAN/_ReadyForBackup'
 kWorkingPath = '/SGB-TITAN/_ReadyForBackup'
 kJobFolderPrefix = '/Jobs'
 kFullSize = '4294967296'  # 4GB
-
-import xlrd, xlwt, xlutils
-
+kFileName = 'test.xlsx'
+kPath = os.path.expanduser('~')
+kSep = '/'
+kURL = kPath + kSep + kFileName
 
 
 def get_list(url):
@@ -56,10 +58,20 @@ def get_list(url):
     :return: the sequence of job numbers retrieved from it
     """
 
+    myList = list()
+    wb = openpyxl.load_workbook(url)
+    ws = wb.active
+    r,c = 1,1
+    while ws.cell(row=r, column=c).value:
+        myList.append(ws.cell(row=r, column=c).value)
+        r = r + 1
+    return myList
+
 def generate_job_url(job):
     """
 
-    :param job: the job number to generate the URL for
+    :param job: the
+     job number to generate the URL for
     :return: the string of the URL to the job on the server
     """
 
@@ -158,3 +170,5 @@ def tag_excel(url, job, disc):
     """
 
 
+if __name__ == "__main__":
+    print(get_list(kURL))
