@@ -35,7 +35,7 @@ II. With that List do the following:
 
 
 """
-import openpyxl, os
+import openpyxl, os, subprocess, shutil
 
 __author__ = 'Benjamin A. Slack, iam@niamjneb.com'
 __version__ = '0.0.0.1'
@@ -112,6 +112,7 @@ def dump_trash(job):
     :return:
     """
     deleteMe = generate_job_url(job)+kTrashFolderPrefix
+    #shutil.rmtree(deleteMe)
     return deleteMe
 
 
@@ -123,15 +124,29 @@ def copy_job(job):
     """
     copyMeFrom = generate_job_url(job)
     copyMeTo = generate_working_url(job)
-    return copyMeFrom, copyMeTo
+    command = 'ditto'
+    do_this = [command, copyMeFrom, copyMeTo]
+    #subprocess.call(do_this)
+    print(do_this)
+    return copyMeTo
 
 
 def zip_job(job):
     """
 
     :param job: The job number to zip using Archive Utility
-    :return: zip filename
+    :return: zip file path
     """
+
+    command = ['ditto']
+    args = ['-c','-k', '--sequesterRsrc', '--keepParent']
+    working_path = [generate_working_url(job)]
+    zip_path = [kWorkingPath + '/' + str(job) + '.zip']
+    do_this = command + args + working_path + zip_path
+
+    #subprocess.call(do_this)
+    print(do_this)
+    return zip_path[0]
 
 
 def bucket_job(zip):
@@ -139,6 +154,25 @@ def bucket_job(zip):
 
     :param zip: zip to put into disc folder
     :return: disc number ZIP was put in
+
+    1. check zip size
+    2. check for disc folders
+        a. found
+            i. for each
+                1. check size
+                2. check fit
+                    a. fits
+                        i. move into folder
+                    b. doesn't fit
+                        i. next folder
+                3. no fits
+                    a. create folder
+                    b. move into folder
+
+        b. not found
+            i. create folder
+            ii. copy into folder
+
     """
 
     def check_disc(disc):
@@ -196,3 +230,4 @@ if __name__ == "__main__":
     print(generate_disc_url(1534))
     print(dump_trash(15687))
     print(copy_job(68975))
+    print(zip_job(566843))
