@@ -35,7 +35,7 @@ II. With that List do the following:
 
 
 """
-import openpyxl, os, subprocess, shutil
+import openpyxl, os, time, subprocess, shutil
 
 __author__ = 'Benjamin A. Slack, iam@niamjneb.com'
 __version__ = '0.0.0.1'
@@ -63,11 +63,12 @@ def get_list(url):
     myList = list()
     wb = openpyxl.load_workbook(url)
     ws = wb.active
-    r,c = 1,1
+    r, c = 1, 1
     while ws.cell(row=r, column=c).value:
         myList.append(ws.cell(row=r, column=c).value)
         r = r + 1
     return myList
+
 
 def generate_job_url(job):
     """
@@ -79,9 +80,8 @@ def generate_job_url(job):
 
     if type(job) != type(''):
         job = str(job)
-    folderNumber = job[len(job)-1:len(job)] #get the last number of the job
-    return kBaseJobsPath+kJobFolderPrefix+folderNumber+kSep+job
-
+    folderNumber = job[len(job) - 1:len(job)]  # get the last number of the job
+    return kBaseJobsPath + kJobFolderPrefix + folderNumber + kSep + job
 
 
 def generate_working_url(job):
@@ -92,7 +92,8 @@ def generate_working_url(job):
     """
     if type(job) != type(''):
         job = str(job)
-    return kWorkingPath+kSep+job
+    return kWorkingPath + kSep + job
+
 
 def generate_disc_url(disc):
     """
@@ -102,7 +103,7 @@ def generate_disc_url(disc):
     """
     if type(disc) != type(''):
         disc = str(disc)
-    return kBaseDisksPath+kDiscFolderPrefix+disc
+    return kBaseDisksPath + kDiscFolderPrefix + disc
 
 
 def dump_trash(job):
@@ -111,9 +112,113 @@ def dump_trash(job):
     :param job: The job number to dump the trash of
     :return:
     """
-    deleteMe = generate_job_url(job)+kTrashFolderPrefix
-    #shutil.rmtree(deleteMe)
+    deleteMe = generate_job_url(job) + kTrashFolderPrefix
+    # shutil.rmtree(deleteMe)
     return deleteMe
+
+
+def clean_IC(job):
+    """
+
+    :param job: job number to clean up the image carrier folder for
+    :return: 0 if successful, -1 if not
+    """
+
+    """
+    1. tokenize each file name in the image carrier folder, compile a list
+    2. if a file has a single token, mark it to keep
+    3. if a file has multiple tokens but none match the job number, mark to delete
+    4. if a file has the job number token, mark it to keep
+    5. if a file has a color token
+        i. look for other files that have the same token
+        ii. mark the most recent to keep
+        iii. mark the remainder to delete
+    6. if no files are marked to keep, mark all files to keep
+    7. delete files marked for deletion
+
+    """
+
+    def tokenize(filename):
+        strip_extension = filename.rpartition('.')[0]
+        break_by_whitespace = strip_extension.split()
+        break_by_underscore = []
+        for this_section in break_by_whitespace:
+            break_by_underscore = break_by_underscore + this_section.split('_')
+        break_by_hyphen = []
+        for this_section in break_by_underscore:
+            break_by_hyphen = break_by_hyphen + this_section.split('-')
+        tokens = break_by_hyphen
+        return tokens
+
+    # compile file list
+
+    image_carrier_path = kPath+'/tmp/Files'
+    #image_carrier_path = generate_job_url(job) + '/Deliverables/Image_Carriers'
+    len_path = image_carrier_path + '/Len'
+    tiff_path = image_carrier_path + '/Tiff'
+
+    files = {}
+    for this_tuple in os.walk(image_carrier_path):
+        this_dir = this_tuple[0]
+        if this_dir[0] != '.':  # ignore dot directories
+            these_files = this_tuple[2]
+            for this_file in these_files:
+                if this_file[0] != '.':  # ignore dot files and hidden stores
+                    this_filepath = this_dir + '/' + this_file
+                    files[this_filepath] = {}
+                    files[this_filepath]['name'] = this_file
+                    files[this_filepath]['modified'] = os.path.getmtime(this_filepath)
+                    files[this_filepath]['tokens'] = tokenize(this_file)
+                    files[this_filepath]['keep'] = True
+
+    # check for a matching job number token, if not there don't keep
+
+    for this_filepath in files.keys():
+        if not(str(job) in files[this_filepath]['tokens']):
+            files[this_filepath]['keep'] = False
+
+    # accumulate color tokens
+
+    color_tokens = {}
+    for this_filepath in files.keys():
+        if files[this_filepath]['keep']:
+            color = files[this_filepath]['tokens'][-1] # last token should be esko's ink color
+            if color_tokens.get(color, True): # color token not yet created
+                color_tokens[color] =  []
+                color_tokens[color].append(this_filepath)
+            else:
+                color_tokens[color].append(this_filepath)
+
+    for this_color in color_tokens.keys():  # with each color
+        if len(color_tokens[this_color]) > 1:  # if there are more than one file
+            dates = []  # for sorting
+            file_by_dates = {} # reverse lookup to files
+            for this_filepath in color_tokens[this_color]:  # for each filepath in a color
+                dates.append(files[this_filepath]['modified'])  # append the date to the sorting list
+                file_by_dates[files[this_filepath]['modified']] = this_filepath  # add the filepath to the reverse lookup table
+            dates.sort()  # sort the dates
+            files[file_by_dates[dates.pop()]]['keep'] = True  # pop the highest from the sort stack and keep that file
+            while dates:
+                files[file_by_dates[dates.pop()]]['keep'] = False  #set the others to drop
+
+    # check for single token, do this last in case the other tests have marked the file for deletion
+
+    for this_filepath in files.keys():
+        if len(files[this_filepath]['tokens']) == 1:
+            files[this_filepath]['keep'] = True
+
+    # using the keep field, dump the dead files
+
+    for this_filepath in files.keys():
+        if not(files[this_filepath]['keep']):
+            #delete this file
+            print('Deleting: {0}'.format(this_filepath))
+
+    for this_filepath in files.keys():
+        print('path: {0}, settings: {1}'.format(this_filepath, repr(files[this_filepath])))
+
+    return 0
+
 
 
 def copy_job(job):
@@ -126,7 +231,7 @@ def copy_job(job):
     copyMeTo = generate_working_url(job)
     command = 'ditto'
     do_this = [command, copyMeFrom, copyMeTo]
-    #subprocess.call(do_this)
+    # subprocess.call(do_this)
     print(do_this)
     return copyMeTo
 
@@ -139,12 +244,12 @@ def zip_job(job):
     """
 
     command = ['ditto']
-    args = ['-c','-k', '--sequesterRsrc', '--keepParent']
+    args = ['-c', '-k', '--sequesterRsrc', '--keepParent']
     working_path = [generate_working_url(job)]
     zip_path = [kWorkingPath + '/' + str(job) + '.zip']
     do_this = command + args + working_path + zip_path
 
-    #subprocess.call(do_this)
+    # subprocess.call(do_this)
     print(do_this)
     return zip_path[0]
 
@@ -175,17 +280,19 @@ def bucket_job(zip):
 
     """
 
-    def check_disc(disc):
-        """
-        :param disc: the disc number of the folder to check for size
-        :return: full or not
-        """
 
-    def create_disc(last_disc):
-        """
-        :param last_disc: the disc number of the last full disc
-        :return the number of the new disc
-        """
+def check_disc(disc):
+    """
+    :param disc: the disc number of the folder to check for size
+    :return: full or not
+    """
+
+
+def create_disc(last_disc):
+    """
+    :param last_disc: the disc number of the last full disc
+    :return the number of the new disc
+    """
 
 
 def dump_copy(copy_url):
@@ -231,3 +338,4 @@ if __name__ == "__main__":
     print(dump_trash(15687))
     print(copy_job(68975))
     print(zip_job(566843))
+    print(clean_IC(4044906))
