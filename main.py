@@ -52,6 +52,9 @@ kPath = os.path.expanduser('~')
 kSep = '/'
 kURL = kPath + kSep + kFileName
 
+disc_catalog = {}
+
+
 
 def get_list(url):
     """
@@ -102,7 +105,7 @@ def generate_disc_url(disc):
     :return: the path to string
     """
     if type(disc) != type(''):
-        disc = str(disc)
+        disc = str(disc).zfill(4)
     return kBaseDisksPath + kDiscFolderPrefix + disc
 
 
@@ -121,7 +124,7 @@ def clean_IC(job):
     """
 
     :param job: job number to clean up the image carrier folder for
-    :return: 0 if successful, -1 if not
+    :return: 0 if successful
     """
 
     """
@@ -211,7 +214,7 @@ def clean_IC(job):
 
     for this_filepath in files.keys():
         if not(files[this_filepath]['keep']):
-            #delete this file
+            #os.remove(this_filepath)
             print('Deleting: {0}'.format(this_filepath))
 
     for this_filepath in files.keys():
@@ -281,11 +284,76 @@ def bucket_job(zip):
     """
 
 
+def inspect_discs():
+    """
+    searches the staging directory for existing disc folders, sizes them and populates the disc catalog
+    :return:
+    """
+
+    """
+    1. get the list of folders in the staging directory, don't read deeper than the root level
+    2. remove any non-disc folders from that listing
+    3. with the remaining folders, calculate the size of each disc, store the value
+    4. if no disc folders exists, prompt for a disc number to start with, create that folder, set it's size to 0
+    """
+    #staging = kBaseDisksPath
+    staging = kPath + '/tmp/Staging2'
+
+    directories = os.walk(staging).next()[1]
+
+    for this_dir in directories: # drop the non-disc dirs
+        if this_dir.find('Disc') == -1:
+            directories.remove(this_dir)
+
+    if len(directories) > 0:  # one or more disc directories
+
+        for index in range(len(directories)): # drop the "Disc" prefix and convert the ids to ints
+            directories[index] = int(directories[index].strip('Disc'))
+
+        for this_dir in directories:
+            disc_catalog[this_dir] = {}
+            disc_catalog[this_dir]['path'] = staging + kDiscFolderPrefix + str(this_dir).zfill(4)
+            disc_catalog[this_dir]['size'] = get_size(disc_catalog[this_dir]['path'])
+    else:  # no disc directories
+        while not('disc' in locals()):  # ask for a disc number until you get a valid one
+            try:
+                disc = int(input('Enter a starting Disc #: '))
+            except ValueError, NameError:
+                print('Disc number is invalid, please enter an integer disc number.')
+
+        os.mkdir(staging + kDiscFolderPrefix + str(disc).zfill(4))  # create a new disc directory
+        disc_catalog[disc] = {}  # add an entry to the catalog
+        disc_catalog[disc]['path'] = staging + kDiscFolderPrefix + str(disc).zfill(4)
+        disc_catalog[disc]['size'] = 0
+
+    return disc_catalog
+
+
+def get_size(path = '.'):
+    total_size = 0
+    for dir_path, dir_names, filenames in os.walk(path):
+        for f in filenames:
+            fp = os.path.join(dir_path, f)
+            total_size += os.path.getsize(fp)
+    return total_size
+
+
 def check_disc(disc):
     """
     :param disc: the disc number of the folder to check for size
     :return: full or not
     """
+
+    try:
+        if disc_catalog[disc]['size'] >= kFullSize:
+            print('Disc {0} is full.'.format(disc))
+            return True
+        else:
+            print('Disc {0} has room.'.format(disc))
+            return False
+    except KeyError:
+        print('Disc {0} Does Not Exist.'.format(disc))
+        return -1
 
 
 def create_disc(last_disc):
@@ -339,3 +407,6 @@ if __name__ == "__main__":
     print(copy_job(68975))
     print(zip_job(566843))
     print(clean_IC(4044906))
+    print(repr(inspect_discs()))
+    print(check_disc(1004))
+    print(check_disc(1005))
