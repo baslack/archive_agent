@@ -53,14 +53,31 @@ kSep = '/'
 kURL = kPath + kSep + kFileName
 
 disc_catalog = {}
+simulate = True
+log_buffer = []
 
 
+def dump_log(filename='log_'+str(int(time.time()))):
+    '''
+
+    :param filename: name of the log file to open
+    :return: file object for the log file
+    '''
+    if not simulate:
+        path = os.path.abspath('.')
+    else:
+        path = kPath + '/tmp'
+    url = path + kSep + filename
+    log = open(url, 'w+')
+    log.writelines(log_buffer)
+    log.close()
+    return url
 
 def get_list(url):
     """
 
     :param url: The location of the excel file we're using
-    :return: the sequence of job numbers retrieved from it
+    :return: a list of dictionaries, containing 'id', 'row' and 'col' of the job in the excel file
     """
 
     myList = list()
@@ -68,8 +85,16 @@ def get_list(url):
     ws = wb.active
     r, c = 1, 1
     while ws.cell(row=r, column=c).value:
-        myList.append(ws.cell(row=r, column=c).value)
-        r = r + 1
+        item = {}
+        try:
+            item['id'] = int(ws.cell(row=r, column=c).value)
+            item['row'] = r
+            item['col'] = c
+        except:
+            r += 1
+            continue
+        myList.append(item)
+        r += 1
     return myList
 
 
@@ -104,7 +129,7 @@ def generate_disc_url(disc):
     :param disc: the disc number to generate path to string for
     :return: the path to string
     """
-    if type(disc) != type(''):
+    if not isinstance(disc, str):
         disc = str(disc).zfill(4)
     return kBaseDisksPath + kDiscFolderPrefix + disc
 
@@ -116,8 +141,11 @@ def dump_trash(job):
     :return:
     """
     deleteMe = generate_job_url(job) + kTrashFolderPrefix
-    # shutil.rmtree(deleteMe)
-    return deleteMe
+    if not simulate:
+        shutil.rmtree(deleteMe)
+    else:
+        print(deleteMe)
+    return 0
 
 
 def clean_IC(job):
@@ -157,8 +185,6 @@ def clean_IC(job):
 
     image_carrier_path = kPath+'/tmp/Files'
     #image_carrier_path = generate_job_url(job) + '/Deliverables/Image_Carriers'
-    len_path = image_carrier_path + '/Len'
-    tiff_path = image_carrier_path + '/Tiff'
 
     files = {}
     for this_tuple in os.walk(image_carrier_path):
@@ -187,7 +213,7 @@ def clean_IC(job):
         if files[this_filepath]['keep']:
             color = files[this_filepath]['tokens'][-1] # last token should be esko's ink color
             if color_tokens.get(color, True): # color token not yet created
-                color_tokens[color] =  []
+                color_tokens[color] = []
                 color_tokens[color].append(this_filepath)
             else:
                 color_tokens[color].append(this_filepath)
@@ -195,7 +221,7 @@ def clean_IC(job):
     for this_color in color_tokens.keys():  # with each color
         if len(color_tokens[this_color]) > 1:  # if there are more than one file
             dates = []  # for sorting
-            file_by_dates = {} # reverse lookup to files
+            file_by_dates = {}  # reverse lookup to files
             for this_filepath in color_tokens[this_color]:  # for each filepath in a color
                 dates.append(files[this_filepath]['modified'])  # append the date to the sorting list
                 file_by_dates[files[this_filepath]['modified']] = this_filepath  # add the filepath to the reverse lookup table
@@ -214,11 +240,19 @@ def clean_IC(job):
 
     for this_filepath in files.keys():
         if not(files[this_filepath]['keep']):
-            #os.remove(this_filepath)
-            print('Deleting: {0}'.format(this_filepath))
+            if not simulate:
+                try:
+                    os.remove(this_filepath)
+                    log_buffer.append('Deleted: {0}\n'.format(this_filepath))
+                except:
+                    log_buffer.append(('Could not delete: {0}\n'.format(this_filepath)))
+            else:
+                log_buffer.append('Will delete: {0}\n'.format(this_filepath))
 
+    '''
     for this_filepath in files.keys():
         print('path: {0}, settings: {1}'.format(this_filepath, repr(files[this_filepath])))
+    '''
 
     return 0
 
@@ -228,14 +262,20 @@ def copy_job(job):
     """
 
     :param job: The job number to copy to the work folder
-    :return: copy_url
+    :return: the copy's url
     """
     copyMeFrom = generate_job_url(job)
     copyMeTo = generate_working_url(job)
     command = 'ditto'
     do_this = [command, copyMeFrom, copyMeTo]
-    # subprocess.call(do_this)
-    print(do_this)
+    if not simulate:
+        try:
+            subprocess.call(do_this)
+            log_buffer.append("Copied: {0} to {1}\n".format(copyMeFrom, copyMeTo))
+        except:
+            log_buffer.append('Unable to copy: {0} to {1}\n'.format(copyMeFrom, copyMeTo))
+    else:
+        log_buffer.append('Will copy: {0} to {1}\n'.format(copyMeFrom, copyMeTo))
     return copyMeTo
 
 
@@ -252,8 +292,14 @@ def zip_job(job):
     zip_path = [kWorkingPath + '/' + str(job) + '.zip']
     do_this = command + args + working_path + zip_path
 
-    # subprocess.call(do_this)
-    print(do_this)
+    if not simulate:
+        try:
+            subprocess.call(do_this)
+            log_buffer.append('Zipped: {0} to {1}\n'.format(job, zip_path[0]))
+        except:
+            log_buffer.append('Unable to zip: {0} to {1}\n'.format(job, zip_path[0]))
+    else:
+            log_buffer.append('Will zip: {0} to {1}\n'.format(job, zip_path[0]))
     return zip_path[0]
 
 
@@ -322,6 +368,7 @@ def inspect_discs():
                 print('Disc number is invalid, please enter an integer disc number.')
 
         os.mkdir(staging + kDiscFolderPrefix + str(disc).zfill(4))  # create a new disc directory
+        log_buffer.append('Created Directory: {0}\n'.format(staging + kDiscFolderPrefix + str(disc).zfill(4)))
         disc_catalog[disc] = {}  # add an entry to the catalog
         disc_catalog[disc]['path'] = staging + kDiscFolderPrefix + str(disc).zfill(4)
         disc_catalog[disc]['size'] = 0
@@ -399,7 +446,7 @@ def tag_excel(url, job, disc):
 
 
 if __name__ == "__main__":
-    print(get_list(kURL))
+    print(repr(get_list(kURL)))
     print(generate_job_url(17545))
     print(generate_working_url(17545))
     print(generate_disc_url(1534))
@@ -410,3 +457,4 @@ if __name__ == "__main__":
     print(repr(inspect_discs()))
     print(check_disc(1004))
     print(check_disc(1005))
+    dump_log()
