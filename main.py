@@ -53,6 +53,7 @@ kSep = '/'
 kURL = kPath + kSep + kFileName
 
 disc_catalog = {}
+job_list = []
 simulate = True
 log_buffer = []
 
@@ -80,7 +81,6 @@ def get_list(url):
     :return: a list of dictionaries, containing 'id', 'row' and 'col' of the job in the excel file
     """
 
-    myList = list()
     wb = openpyxl.load_workbook(url)
     ws = wb.active
     r, c = 1, 1
@@ -93,9 +93,9 @@ def get_list(url):
         except:
             r += 1
             continue
-        myList.append(item)
+        job_list.append(item)
         r += 1
-    return myList
+    return 0
 
 
 def generate_job_url(job):
@@ -403,19 +403,25 @@ def check_disc(disc):
         return -1
 
 
-def create_disc(last_disc):
+def create_disc():
     """
-    :param last_disc: the disc number of the last full disc
     :return the number of the new disc
     """
-
-
-def dump_copy(copy_url):
-    """
-
-    :param copy_url: the url of the temp folder to delete
-    :return:
-    """
+    discs = disc_catalog.keys()
+    discs.sort()
+    last_disc = discs.pop()
+    new_disc = last_disc + 1
+    if not simulate:
+        try:
+            os.mkdir(generate_disc_url(new_disc))
+            disc_catalog[new_disc]['path'] = generate_disc_url(new_disc)
+            disc_catalog[new_disc]['size'] = 0
+            log_buffer.append('Created new disc foolder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
+        except:
+            log_buffer.append('Unable to create new disc folder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
+    else:
+        log_buffer.append('Will create new disc folder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
+    return new_disc
 
 
 def dump_job(job):
@@ -424,6 +430,15 @@ def dump_job(job):
     :param job: the job number to dump the contents on
     :return:
     """
+    if not simulate:
+        try:
+            shutil.rmtree(generate_job_url(job))
+            log_buffer.append('Dumped job#: {0} from {1}\n'.format(job, generate_job_url(job)))
+        except:
+            log_buffer.append('Unable to dump job#: {0} from {1}\n'.format(job, generate_job_url(job)))
+    else:
+        log_buffer.append('Will dump job#: {0} from {1}\n'.format(job, generate_job_url(job)))
+    return 0
 
 
 def tag_job(job, disc):
@@ -433,20 +448,53 @@ def tag_job(job, disc):
     :param disc: the disc number for the tag
     :return:
     """
+    if not simulate:
+        try:
+            os.mkdir(generate_job_url(job)+kSep+str(disc))
+            log_buffer.append('Tagged Job# {0} with Disc# {1}\n'.format(job, disc))
+        except:
+            log_buffer.append('Unable to tag Job# {0} with Disc# {1}\n'.format(job, disc))
+    else:
+        log_buffer.append('Will tag job# {0} with Disc# {1}\n'.format(job, disc))
+    return 0
 
 
-def tag_excel(url, job, disc):
-    """
+def compile_excel_tags(job, disc):
+    '''
 
-    :param url: location of the excel file
-    :param job: job number to lookup in the excel file
-    :param disc: disc number to enter in the excel file
+    :param job_list: the list of dictionaries gathered by get_list
+    :param job: a job number
+    :param disc:  a disc number
+    :return: the modified listing
+    '''
+
+    for this_item in job_list:
+        if this_item['id'] == job:
+            this_item['disc'] = disc
+    return 0
+
+def dump_list_to_excel(url):
+    '''
+
+    :param url: path of the excel file to update
     :return:
-    """
+    '''
+    wb = openpyxl.load_workbook(url)
+    ws = wb.active
+    for this_item in job_list:
+        if not simulate:
+            try:
+                ws.cell(row=this_item['row'], column=4).value = this_item['disc']
+                log_buffer.append('Updated Excel File {0}, job# {1} to disc# {2}\n'.format(url, this_item['id'], this_item['disc']))
+            except:
+                log_buffer.append('Problem updating Excel File {0}, job# {1} to disc# {2}\n'.format(url, this_item['id'], this_item['disc']))
+    wb.save(url)
+    return 0
 
 
 if __name__ == "__main__":
-    print(repr(get_list(kURL)))
+    get_list(kURL)
+    print(repr(job_list))
     print(generate_job_url(17545))
     print(generate_working_url(17545))
     print(generate_disc_url(1534))
@@ -457,4 +505,5 @@ if __name__ == "__main__":
     print(repr(inspect_discs()))
     print(check_disc(1004))
     print(check_disc(1005))
+    print(repr(disc_catalog))
     dump_log()
