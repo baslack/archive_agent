@@ -58,7 +58,7 @@ simulate = True
 log_buffer = []
 
 
-def dump_log(filename='log_'+str(int(time.time()))):
+def dump_log(filename='log_' + str(int(time.time()))):
     '''
 
     :param filename: name of the log file to open
@@ -74,6 +74,7 @@ def dump_log(filename='log_'+str(int(time.time()))):
     log.close()
     return url
 
+
 def get_list(url):
     """
 
@@ -83,7 +84,7 @@ def get_list(url):
 
     wb = openpyxl.load_workbook(url)
     ws = wb.active
-    r, c = 1, 1
+    r, c, c2 = 1, 1, 4
     while ws.cell(row=r, column=c).value:
         item = {}
         try:
@@ -93,7 +94,9 @@ def get_list(url):
         except:
             r += 1
             continue
-        job_list.append(item)
+        print(ws.cell(row=r, column=c2).value)
+        if not (ws.cell(row=r, column=c2).value):
+            job_list.append(item)
         r += 1
     return 0
 
@@ -183,8 +186,8 @@ def clean_IC(job):
 
     # compile file list
 
-    image_carrier_path = kPath+'/tmp/Files'
-    #image_carrier_path = generate_job_url(job) + '/Deliverables/Image_Carriers'
+    image_carrier_path = kPath + '/tmp/Files'
+    # image_carrier_path = generate_job_url(job) + '/Deliverables/Image_Carriers'
 
     files = {}
     for this_tuple in os.walk(image_carrier_path):
@@ -203,7 +206,7 @@ def clean_IC(job):
     # check for a matching job number token, if not there don't keep
 
     for this_filepath in files.keys():
-        if not(str(job) in files[this_filepath]['tokens']):
+        if not (str(job) in files[this_filepath]['tokens']):
             files[this_filepath]['keep'] = False
 
     # accumulate color tokens
@@ -211,8 +214,8 @@ def clean_IC(job):
     color_tokens = {}
     for this_filepath in files.keys():
         if files[this_filepath]['keep']:
-            color = files[this_filepath]['tokens'][-1] # last token should be esko's ink color
-            if color_tokens.get(color, True): # color token not yet created
+            color = files[this_filepath]['tokens'][-1]  # last token should be esko's ink color
+            if color_tokens.get(color, True):  # color token not yet created
                 color_tokens[color] = []
                 color_tokens[color].append(this_filepath)
             else:
@@ -224,7 +227,8 @@ def clean_IC(job):
             file_by_dates = {}  # reverse lookup to files
             for this_filepath in color_tokens[this_color]:  # for each filepath in a color
                 dates.append(files[this_filepath]['modified'])  # append the date to the sorting list
-                file_by_dates[files[this_filepath]['modified']] = this_filepath  # add the filepath to the reverse lookup table
+                file_by_dates[
+                    files[this_filepath]['modified']] = this_filepath  # add the filepath to the reverse lookup table
             dates.sort()  # sort the dates
             files[file_by_dates[dates.pop()]]['keep'] = True  # pop the highest from the sort stack and keep that file
             while dates:
@@ -239,7 +243,7 @@ def clean_IC(job):
     # using the keep field, dump the dead files
 
     for this_filepath in files.keys():
-        if not(files[this_filepath]['keep']):
+        if not (files[this_filepath]['keep']):
             if not simulate:
                 try:
                     os.remove(this_filepath)
@@ -255,7 +259,6 @@ def clean_IC(job):
     '''
 
     return 0
-
 
 
 def copy_job(job):
@@ -299,8 +302,52 @@ def zip_job(job):
         except:
             log_buffer.append('Unable to zip: {0} to {1}\n'.format(job, zip_path[0]))
     else:
-            log_buffer.append('Will zip: {0} to {1}\n'.format(job, zip_path[0]))
+        log_buffer.append('Will zip: {0} to {1}\n'.format(job, zip_path[0]))
     return zip_path[0]
+
+
+class Error(Exception):
+    pass
+
+
+def inspect_job(job):
+    """
+
+    :param job: job number to inspect
+    :return: true, job needs to be archived or false, job has issues
+    """
+
+    # path = generate_job_url(job)
+    path = os.path.expanduser('~/test')
+    my_walk = os.walk(path)
+    path, dirs, files = my_walk.next()
+
+    files.remove('.DS_Store')  # kill the Extreme IP mac share data
+    try:
+        if len(files) > 0:
+            raise Exception('Path Not Empty.')  #loose files in the directory means something is wrong, get a human
+
+        if len(dirs) > 1:  #more than one directory means there's something to archive
+            return True
+        if len(dirs) == 1:  #could mean a disc folder already exists
+            try:
+                disc = int(dirs[0].lower().strip('disk#'))  #try to extract a disk number from the single directory
+            except:
+                raise Exception('Disk Folder not recognized.')  #no disc folder means a human needs to check the directory manually
+
+            # if we get here, a disc got recognized and we need to make sure it goes into the excel file
+            for this_item in job_list:
+                if this_item['id'] == job:
+                    this_item['disc'] = disc
+            return False  # but the job doesn't need to be archived
+        if len(dirs) == 0:
+            raise Exception('Disk Folder Is Empty.')  #no directories means something is wrong, get a human
+    except:
+        # if any exception gets raised on inspection, we can't continue with archiving the job
+        for a in job_list:
+            if a['id'] == job:
+                job_list.remove(a)  #remove the job from the master list
+        return False
 
 
 def bucket_job(zip):
@@ -342,18 +389,18 @@ def inspect_discs():
     3. with the remaining folders, calculate the size of each disc, store the value
     4. if no disc folders exists, prompt for a disc number to start with, create that folder, set it's size to 0
     """
-    #staging = kBaseDisksPath
+    # staging = kBaseDisksPath
     staging = kPath + '/tmp/Staging2'
 
     directories = os.walk(staging).next()[1]
 
-    for this_dir in directories: # drop the non-disc dirs
+    for this_dir in directories:  # drop the non-disc dirs
         if this_dir.find('Disc') == -1:
             directories.remove(this_dir)
 
     if len(directories) > 0:  # one or more disc directories
 
-        for index in range(len(directories)): # drop the "Disc" prefix and convert the ids to ints
+        for index in range(len(directories)):  # drop the "Disc" prefix and convert the ids to ints
             directories[index] = int(directories[index].strip('Disc'))
 
         for this_dir in directories:
@@ -361,7 +408,7 @@ def inspect_discs():
             disc_catalog[this_dir]['path'] = staging + kDiscFolderPrefix + str(this_dir).zfill(4)
             disc_catalog[this_dir]['size'] = get_size(disc_catalog[this_dir]['path'])
     else:  # no disc directories
-        while not('disc' in locals()):  # ask for a disc number until you get a valid one
+        while not ('disc' in locals()):  # ask for a disc number until you get a valid one
             try:
                 disc = int(input('Enter a starting Disc #: '))
             except ValueError, NameError:
@@ -376,7 +423,7 @@ def inspect_discs():
     return disc_catalog
 
 
-def get_size(path = '.'):
+def get_size(path='.'):
     total_size = 0
     for dir_path, dir_names, filenames in os.walk(path):
         for f in filenames:
@@ -418,7 +465,8 @@ def create_disc():
             disc_catalog[new_disc]['size'] = 0
             log_buffer.append('Created new disc foolder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
         except:
-            log_buffer.append('Unable to create new disc folder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
+            log_buffer.append(
+                'Unable to create new disc folder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
     else:
         log_buffer.append('Will create new disc folder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
     return new_disc
@@ -450,7 +498,7 @@ def tag_job(job, disc):
     """
     if not simulate:
         try:
-            os.mkdir(generate_job_url(job)+kSep+str(disc))
+            os.mkdir(generate_job_url(job) + kSep + str(disc))
             log_buffer.append('Tagged Job# {0} with Disc# {1}\n'.format(job, disc))
         except:
             log_buffer.append('Unable to tag Job# {0} with Disc# {1}\n'.format(job, disc))
@@ -473,6 +521,7 @@ def compile_excel_tags(job, disc):
             this_item['disc'] = disc
     return 0
 
+
 def dump_list_to_excel(url):
     '''
 
@@ -485,15 +534,20 @@ def dump_list_to_excel(url):
         if not simulate:
             try:
                 ws.cell(row=this_item['row'], column=4).value = this_item['disc']
-                log_buffer.append('Updated Excel File {0}, job# {1} to disc# {2}\n'.format(url, this_item['id'], this_item['disc']))
+                log_buffer.append(
+                    'Updated Excel File {0}, job# {1} to disc# {2}\n'.format(url, this_item['id'], this_item['disc']))
             except:
-                log_buffer.append('Problem updating Excel File {0}, job# {1} to disc# {2}\n'.format(url, this_item['id'], this_item['disc']))
+                log_buffer.append(
+                    'Problem updating Excel File {0}, job# {1} to disc# {2}\n'.format(url, this_item['id'],
+                                                                                      this_item['disc']))
     wb.save(url)
     return 0
 
 
 if __name__ == "__main__":
     get_list(kURL)
+    print(repr(job_list))
+    print(inspect_job(14557))
     print(repr(job_list))
     print(generate_job_url(17545))
     print(generate_working_url(17545))
