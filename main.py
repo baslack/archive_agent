@@ -40,9 +40,12 @@ import openpyxl, os, time, subprocess, shutil
 __author__ = 'Benjamin A. Slack, iam@niamjneb.com'
 __version__ = '0.0.0.1'
 
-kBaseJobsPath = '/Volumes/JobsA'
-kBaseDisksPath = '/Volumes/SGB-TITAN/_ReadyForBackup'
-kWorkingPath = '/Volumes/SGB-TITAN/_ReadyForBackup'
+#kBaseJobsPath = '/Volumes/JobsA'
+kBaseJobsPath = os.path.expanduser('~/tmp/JobsA')
+#kBaseDisksPath = '/Volumes/SGB-TITAN/_ReadyForBackup'
+kBaseDisksPath = os.path.expanduser('~/tmp/Staging')
+#kWorkingPath = '/Volumes/SGB-TITAN/_ReadyForBackup'
+kWorkingPath = os.path.expanduser('~/tmp/Staging')
 kJobFolderPrefix = '/Jobs'
 kTrashFolderPrefix = '/Trash'
 kDiscFolderPrefix = '/Disc'
@@ -50,7 +53,8 @@ kFullSize = '4294967296'  # 4GB
 kFileName = 'test.xlsx'
 kPath = os.path.expanduser('~')
 kSep = '/'
-kURL = kPath + kSep + kFileName
+#kURL = kPath + kSep + kFileName
+kURL = os.path.expanduser('~/tmp/test.xlsx')
 
 disc_catalog = {}
 job_list = []
@@ -82,7 +86,10 @@ def get_list(url):
     :return: a list of dictionaries, containing 'id', 'row' and 'col' of the job in the excel file
     """
 
-    wb = openpyxl.load_workbook(url)
+    try:
+        wb = openpyxl.load_workbook(url)
+    except:
+        print('No excel file at {0)'.format(url))
     ws = wb.active
     r, c, c2 = 1, 1, 4
     while ws.cell(row=r, column=c).value:
@@ -306,10 +313,6 @@ def zip_job(job):
     return zip_path[0]
 
 
-class Error(Exception):
-    pass
-
-
 def inspect_job(job):
     """
 
@@ -350,12 +353,13 @@ def inspect_job(job):
         return False
 
 
-def bucket_job(zip):
+def bucket_job(zip_url):
     """
 
     :param zip: zip to put into disc folder
     :return: disc number ZIP was put in
-
+    """
+    """
     1. check zip size
     2. check for disc folders
         a. found
@@ -375,6 +379,44 @@ def bucket_job(zip):
             ii. copy into folder
 
     """
+    zip_size = get_size(zip_url)
+    zip_name = zip_url.rsplit('/', 1)[-1]
+
+    discs = disc_catalog.keys()  # get the disc numbers
+    disc.sort()  # sort the disc numbers from low to high
+
+    zip_placed = False  # zip has not yet been placed
+
+    bucket = 0
+
+    for this_disc in discs:
+        if zip_size + disc_catalog[this_disc]['size'] >= kFullSize:
+            pass  # next disc
+        else:
+            zip_placed = True
+            if not simulate:
+                # move the file to the directory
+                shutil.move(zip_url, disc_catalog[this_disc]['path']+kSep+zip_name)
+                log_buffer.append('{0} moved to disc {1}, @ {2}\n'.format(zip_name, this_disc, disc_catalog[this_disc]['path']))
+                # update the size in the catalog
+                disc_catalog[this_disc]['size'] += zip_size
+                bucket = this_disc
+            else:
+                log_buffer.append('{0} will be moved to disc {1}, @ {2}\n'.format(zip_name, this_disc, disc_catalog[this_disc]['path']))
+
+    if not(zip_placed) then:  # zip didn't get placed in the disc folders
+        new_disc = create_disc()
+        if not simulate:
+            # move the zip file into the new disc
+            shutil.move(zip_url, disc_catalog[new_disc]['path']+kSep+zip_name)
+            log_buffer.append('{0} moved to disc {1}, @ {2}\n'.format(zip_name, new_disc, disc_catalog[new_disc]['path']))
+            # update the new disc's size
+            disc_catalog[new_disc]['size'] += zip_size
+            bucket = new_disc
+        else:
+            log_buffer.append('{0} moved to disc {1}, @ {2}\n'.format(zip_name, new_disc, disc_catalog[new_disc]['path']))
+
+    return bucket
 
 
 def inspect_discs():
@@ -546,18 +588,9 @@ def dump_list_to_excel(url):
 
 if __name__ == "__main__":
     get_list(kURL)
-    print(repr(job_list))
-    print(inspect_job(14557))
-    print(repr(job_list))
-    print(generate_job_url(17545))
-    print(generate_working_url(17545))
-    print(generate_disc_url(1534))
-    print(dump_trash(15687))
-    print(copy_job(68975))
-    print(zip_job(566843))
-    print(clean_IC(4044906))
-    print(repr(inspect_discs()))
-    print(check_disc(1004))
-    print(check_disc(1005))
-    print(repr(disc_catalog))
+    # cleanup the list
+    for this_job in job_list:
+        inspect_job(this_job)
+
+    #
     dump_log()
