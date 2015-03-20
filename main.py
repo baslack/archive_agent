@@ -54,11 +54,11 @@ kFileName = 'test.xlsx'
 kPath = os.path.expanduser('~')
 kSep = '/'
 #kURL = kPath + kSep + kFileName
-kURL = os.path.expanduser('~/tmp/test.xlsx')
+kURL = os.path.expanduser('~/tmp/Logs/test.xlsx')
 
 disc_catalog = {}
 job_list = []
-simulate = True
+simulate = False
 log_buffer = []
 
 
@@ -69,7 +69,7 @@ def dump_log(filename='log_' + str(int(time.time()))):
     :return: file object for the log file
     '''
     if not simulate:
-        path = os.path.abspath('.')
+        path = kWorkingPath
     else:
         path = kPath + '/tmp'
     url = path + kSep + filename
@@ -91,8 +91,12 @@ def get_list(url):
     except:
         print('No excel file at {0)'.format(url))
     ws = wb.active
-    r, c, c2 = 1, 1, 4
-    while ws.cell(row=r, column=c).value:
+    max_row = int(ws.max_row) + 1
+    max_col = ws.max_column
+
+    r, c, c2 = 1, 1, 5
+
+    while r < max_row:
         item = {}
         try:
             item['id'] = int(ws.cell(row=r, column=c).value)
@@ -101,7 +105,6 @@ def get_list(url):
         except:
             r += 1
             continue
-        print(ws.cell(row=r, column=c2).value)
         if not (ws.cell(row=r, column=c2).value):
             job_list.append(item)
         r += 1
@@ -152,7 +155,10 @@ def dump_trash(job):
     """
     deleteMe = generate_job_url(job) + kTrashFolderPrefix
     if not simulate:
-        shutil.rmtree(deleteMe)
+        try:
+            shutil.rmtree(deleteMe)
+        except:
+            pass
     else:
         print(deleteMe)
     return 0
@@ -193,8 +199,7 @@ def clean_IC(job):
 
     # compile file list
 
-    image_carrier_path = kPath + '/tmp/Files'
-    # image_carrier_path = generate_job_url(job) + '/Deliverables/Image_Carriers'
+    image_carrier_path = generate_job_url(job) + '/Deliverables/Image_Carriers'
 
     files = {}
     for this_tuple in os.walk(image_carrier_path):
@@ -296,21 +301,21 @@ def zip_job(job):
     :return: zip file path
     """
 
-    command = ['ditto']
-    args = ['-c', '-k', '--sequesterRsrc', '--keepParent']
-    working_path = [generate_working_url(job)]
-    zip_path = [kWorkingPath + '/' + str(job) + '.zip']
-    do_this = command + args + working_path + zip_path
+    command = 'ditto'
+    args = '-c -k --sequesterRsrc --keepParent'
+    working_path = generate_job_url(job)
+    zip_path = kWorkingPath + '/' + str(job) + '.zip'
+    do_this = '{0} {1} {2} {3}'.format(command, args, working_path, zip_path)
 
     if not simulate:
         try:
-            subprocess.call(do_this)
-            log_buffer.append('Zipped: {0} to {1}\n'.format(job, zip_path[0]))
+            subprocess.call(do_this, shell=True)
+            log_buffer.append('Zipped: {0} to {1}\n'.format(job, zip_path))
         except:
-            log_buffer.append('Unable to zip: {0} to {1}\n'.format(job, zip_path[0]))
+            log_buffer.append('Unable to zip: {0} to {1}\n'.format(job, zip_path))
     else:
-        log_buffer.append('Will zip: {0} to {1}\n'.format(job, zip_path[0]))
-    return zip_path[0]
+        log_buffer.append('Will zip: {0} to {1}\n'.format(job, zip_path))
+    return zip_path
 
 
 def inspect_job(job):
@@ -320,12 +325,20 @@ def inspect_job(job):
     :return: true, job needs to be archived or false, job has issues
     """
 
-    # path = generate_job_url(job)
-    path = os.path.expanduser('~/test')
+    path = generate_job_url(job)
     my_walk = os.walk(path)
     path, dirs, files = my_walk.next()
 
-    files.remove('.DS_Store')  # kill the Extreme IP mac share data
+    try:
+        files.remove('.DS_Store')  # kill the Extreme IP mac share data
+    except:
+        pass
+
+    try:
+        dirs.remove('config')  # kill the hidden config dirs
+    except:
+        pass
+
     try:
         if len(files) > 0:
             raise Exception('Path Not Empty.')  #loose files in the directory means something is wrong, get a human
@@ -383,7 +396,7 @@ def bucket_job(zip_url):
     zip_name = zip_url.rsplit('/', 1)[-1]
 
     discs = disc_catalog.keys()  # get the disc numbers
-    disc.sort()  # sort the disc numbers from low to high
+    discs.sort()  # sort the disc numbers from low to high
 
     zip_placed = False  # zip has not yet been placed
 
@@ -404,7 +417,7 @@ def bucket_job(zip_url):
             else:
                 log_buffer.append('{0} will be moved to disc {1}, @ {2}\n'.format(zip_name, this_disc, disc_catalog[this_disc]['path']))
 
-    if not(zip_placed) then:  # zip didn't get placed in the disc folders
+    if not zip_placed:  # zip didn't get placed in the disc folders
         new_disc = create_disc()
         if not simulate:
             # move the zip file into the new disc
@@ -431,8 +444,7 @@ def inspect_discs():
     3. with the remaining folders, calculate the size of each disc, store the value
     4. if no disc folders exists, prompt for a disc number to start with, create that folder, set it's size to 0
     """
-    # staging = kBaseDisksPath
-    staging = kPath + '/tmp/Staging2'
+    staging = kBaseDisksPath
 
     directories = os.walk(staging).next()[1]
 
@@ -453,7 +465,7 @@ def inspect_discs():
         while not ('disc' in locals()):  # ask for a disc number until you get a valid one
             try:
                 disc = int(input('Enter a starting Disc #: '))
-            except ValueError, NameError:
+            except:
                 print('Disc number is invalid, please enter an integer disc number.')
 
         os.mkdir(staging + kDiscFolderPrefix + str(disc).zfill(4))  # create a new disc directory
@@ -465,12 +477,16 @@ def inspect_discs():
     return disc_catalog
 
 
-def get_size(path='.'):
+def get_size(path):
     total_size = 0
-    for dir_path, dir_names, filenames in os.walk(path):
-        for f in filenames:
-            fp = os.path.join(dir_path, f)
-            total_size += os.path.getsize(fp)
+    try:
+        os.walk(path).next()
+        for dir_path, dir_names, filenames in os.walk(path):
+            for f in filenames:
+                fp = os.path.join(dir_path, f)
+                total_size += os.path.getsize(fp)
+    except:
+        total_size = os.path.getsize(path)
     return total_size
 
 
@@ -540,7 +556,7 @@ def tag_job(job, disc):
     """
     if not simulate:
         try:
-            os.mkdir(generate_job_url(job) + kSep + str(disc))
+            os.makedirs(generate_job_url(job) + kSep + kDiscFolderPrefix + str(disc).zfill(4))
             log_buffer.append('Tagged Job# {0} with Disc# {1}\n'.format(job, disc))
         except:
             log_buffer.append('Unable to tag Job# {0} with Disc# {1}\n'.format(job, disc))
@@ -588,9 +604,23 @@ def dump_list_to_excel(url):
 
 if __name__ == "__main__":
     get_list(kURL)
+    # print(repr(job_list))
     # cleanup the list
     for this_job in job_list:
-        inspect_job(this_job)
-
-    #
-    dump_log()
+        inspect_job(this_job['id'])
+    print(repr(job_list))
+    # setup the disc catalog
+    inspect_discs()
+    # for each job
+    for this_job in job_list:
+        if not this_job.has_key('disc'):
+            dump_trash(this_job['id']) # empty the trash folder
+            clean_IC(this_job['id']) # clean out the image carriers
+            this_zip = zip_job(this_job['id'])
+            print(this_zip)
+            this_job['disc'] = bucket_job(this_zip) # zip and sort the the zip into a folder
+            dump_job(this_job['id']) # empty the job folder
+            tag_job(this_job['id'], this_job['disc']) # create a disc folder tag
+        compile_excel_tags(this_job['id'], this_job['disc']) # compile the excel data
+    dump_list_to_excel(kURL) # write the compiled data to the xl doc
+    dump_log() # dump the log file
