@@ -48,7 +48,7 @@ kBaseDisksPath = os.path.expanduser('~/tmp/Staging')
 kWorkingPath = os.path.expanduser('~/tmp/Staging')
 kJobFolderPrefix = '/Jobs'
 kTrashFolderPrefix = '/Trash'
-kDiscFolderPrefix = '/Disc'
+kDiscFolderPrefix = 'Disc'
 kFullSize = 4294967296  # 4GB
 kFileName = 'test.xlsx'
 kPath = os.path.expanduser('~')
@@ -60,6 +60,213 @@ disc_catalog = {}
 job_list = []
 simulate = False
 log_buffer = []
+
+class Job:
+    def __init__(self, job_number):
+        self.job_number = job_number
+        self.location = generate_job_url(job_number)
+        self.is_archived = False
+        self.size = get_size(self.location)
+        self.on_server = True
+        self.clean = False
+        self.archive = None
+        self.on_disc = None
+        self.ignore = False
+        self.inspect()
+
+    def dump(self):
+        dump_job(self.job_number)
+        self.on_server = False
+
+    def cleanup(self):
+        dump_trash(self.job_number)
+        clean_IC(self.job_number)
+        self.clean = True
+
+    def inspect(self):
+        my_walk = os.walk(self.location)
+        path, dirs, files = my_walk.next()
+
+        try:
+            files.remove('.DS_Store')  # kill the Extreme IP mac share data
+        except:
+            pass
+
+        try:
+            dirs.remove('config')  # kill the hidden config dirs
+        except:
+            pass
+
+        if len(dirs) == 1:  #could mean a disc folder already exists
+            try:
+                disc = int(dirs[0].lower().strip('disk#'))  #try to extract a disk number from the single directory
+            except:
+                raise Exception('Disk Folder not recognized.')  #no disc folder means a human needs to check the directory manually
+
+            # if we get here, a disc got recognized and we need to make sure it goes into the excel file
+            self.is_archived = True
+            self.on_disc = disc
+
+        elif len(dirs) == 0:
+            try:
+                raise Exception('Job Folder Is Empty.')  #no directories means something is wrong, get a human
+            except:
+                self.ignore = True
+        else:
+            self.is_archived = False
+            self.ignore = False
+
+
+class File:
+    def __init__(self, url):
+        self.location = url
+        print(repr(url))
+        self.name = url.rsplit('/',1)[1]
+        self.size = get_size(url)
+        self.is_placed = False
+        self.in_disc = False
+
+    def add2disc(self, disc):
+        if self.size + disc.size >= kFullSize:
+            return False
+        else:
+            shutil.move(self.location, disc.location)
+            self.is_placed = True
+            self.in_disc = disc
+            disc.size += self.size
+            if disc.size >= kFullSize:
+                disc.is_full = True
+            self.location = disc.location + kSep + self.name
+            return True
+
+class Archive:
+    def __init__(self, job):
+        self.job = job
+        self.files = []
+
+        # archive the job
+        command = 'ditto'
+        args = '-c -k --sequesterRsrc --keepParent'
+        zip_name = str(job.job_number) + '.zip'
+        zip_path = kWorkingPath + kSep + zip_name
+        do_this = '{0} {1} {2} {3}'.format(command, args, job.location, zip_path)
+        subprocess.call(do_this, shell=True)
+        zip_size = get_size(zip_path)
+
+        # break it up if required
+        if zip_size >= kFullSize:
+            command = 'zip'
+            args = '-s 2g'
+            split_path = kWorkingPath + kSep + '{0}_split.zip'.format(job.job_number)
+            do_this = '{0} {1} {2} {3}'.format(command, args, split_path, zip_path)
+            subprocess.call(do_this, shell=True)
+            os.remove(zip_path)
+            these_files = os.listdir(kWorkingPath)
+            for this_file in these_files:
+                if this_file.find('_split') > 0:  # contains the split file name
+                    self.files.append(File(kWorkingPath + kSep + this_file))
+        else:
+            self.files.append(File(zip_path))
+        job.is_archived = True
+        job.archive = self
+
+
+class Disc:
+    def __init__(self, disc_number):
+        self.disc_number = disc_number
+        self.folder_name = kDiscFolderPrefix + str(self.disc_number).zfill(4)
+        self.location = kBaseDisksPath + kSep + self.folder_name
+        try:
+            os.makedirs(self.location)
+        except:
+            pass
+        self.size = get_size(self.location)
+        if self.size >= kFullSize:
+            self.is_full = True
+        else:
+            self.is_full = False
+        self.contents = os.listdir(self.location)
+
+class Manager:
+    def __init__(self, url):
+        self.job_list = []
+        self.disc_catalog = []
+        self.get_job_list(url)
+        self.setup_disc_catalog()
+
+    def get_job_list(self, url):
+        """
+        Setups up the master job list and attaches the Excel file log to the manager object.
+        """
+        try:
+            self.wb = openpyxl.load_workbook(url)
+        except:
+            print('No excel file at {0)'.format(url))
+            return False
+        ws = self.wb.active
+        max_row = int(ws.max_row) + 1
+        max_col = ws.max_column
+
+        r, c, c2 = 1, 1, 5
+
+        while r < max_row:
+            try:
+                job_number = int(ws.cell(row=r, column=c).value)  # first entry is a job number
+            except:
+                r += 1
+                continue
+            if not (ws.cell(row=r, column=c2).value):  # disc already attached to job
+                parsed_jobs = []
+                # check for double entries
+                for this_job in self.job_list:
+                    parsed_jobs.append(this_job.job_number)
+                if parsed_jobs.count(job_number) == 0:
+                    self.job_list.append(Job(job_number))
+            r += 1
+        return True
+
+    def setup_disc_catalog(self, url=kBaseDisksPath):
+        """
+        searches the base disc directory for existing disc folders, sizes them and populates the disc catalog
+        """
+
+        """
+        1. get the list of folders in the staging directory, don't read deeper than the root level
+        2. remove any non-disc folders from that listing
+        3. with the remaining folders, calculate the size of each disc, store the value
+        4. if no disc folders exists, prompt for a disc number to start with, create that folder, set it's size to 0
+        """
+
+        directories = os.walk(url).next()[1]
+
+        for this_dir in directories:  # drop the non-disc dirs
+            if this_dir.find('Disc') == -1:
+                directories.remove(this_dir)
+
+        if len(directories) > 0:  # one or more disc directories
+
+            for index in range(len(directories)):  # drop the "Disc" prefix and convert the ids to ints
+                directories[index] = int(directories[index].strip('Disc'))
+
+            for this_disc_number in directories:
+                self.disc_catalog.append(Disc(this_disc_number))
+        else:  # no disc directories
+            while not ('disc_number' in locals()):  # ask for a disc number until you get a valid one
+                try:
+                    disc_number = int(input('Enter a starting Disc #: '))
+                except:
+                    print('Disc number is invalid, please enter an integer disc number.')
+            self.disc_catalog.append(Disc(disc_number))
+
+        return True
+
+    def get_last_disc(self):
+        disc_numbers = []
+        for this_disc in self.disc_catalog:
+            disc_numbers.append(this_disc.disc_number)
+        disc_numbers.sort()
+        return disc_numbers[-1]
+
 
 
 def dump_log(filename='log_' + str(int(time.time()))):
@@ -603,6 +810,37 @@ def dump_list_to_excel(url):
 
 
 if __name__ == "__main__":
+    mngr = Manager(kURL)
+    for this_job in mngr.job_list:
+        print('Job: {0}, @:{1}\n'.format(this_job.job_number, this_job.location))
+    for this_disc in mngr.disc_catalog:
+        print('Disc: {0}, @:{1}\n'.format(this_disc.disc_number, this_disc.location))
+
+
+    # code for bucketing the jobs
+    for this_job in mngr.job_list:
+        if not this_job.ignore and not this_job.is_archived:
+            this_job.archive = Archive(this_job)
+            for this_file in this_job.archive.files:
+                index = 0
+                while index < len(mngr.disc_catalog):
+                    try:
+                        if not(this_file.add2disc(mngr.disc_catalog[index])):
+                            index += 1
+                        else:
+                            break
+                    except:
+                        pass
+                if not this_file.is_placed:
+                    new_disc_number = mngr.get_last_disc() + 1
+                    new_disc = Disc(new_disc_number)
+                    mngr.disc_catalog.append(new_disc)
+                    this_file.add2disc(new_disc)
+
+
+
+
+    """
     get_list(kURL)
     # print(repr(job_list))
     # cleanup the list
@@ -624,3 +862,4 @@ if __name__ == "__main__":
         compile_excel_tags(this_job['id'], this_job['disc']) # compile the excel data
     dump_list_to_excel(kURL) # write the compiled data to the xl doc
     dump_log() # dump the log file
+    """
