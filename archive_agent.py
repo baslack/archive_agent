@@ -75,12 +75,119 @@ class Job:
         self.inspect()
 
     def dump(self):
-        dump_job(self.job_number)
+        shutil.rmtree(self.location)
         self.on_server = False
 
     def cleanup(self):
-        dump_trash(self.job_number)
-        clean_IC(self.job_number)
+        # empty Trash folder
+        try:
+            shutil.rmtree('{0}/Trash'.format(self.location))
+        except:
+            pass
+
+        # clean up Image Carrier folders
+        """
+        1. tokenize each file name in the image carrier folder, compile a list
+        2. if a file has a single token, mark it to keep
+        3. if a file has multiple tokens but none match the job number, mark to delete
+        4. if a file has the job number token, mark it to keep
+        5. if a file has a color token
+            i. look for other files that have the same token
+            ii. mark the most recent to keep
+            iii. mark the remainder to delete
+        6. if no files are marked to keep, mark all files to keep
+        7. delete files marked for deletion
+
+        """
+
+        def tokenize(filename):
+            strip_extension = filename.rpartition('.')[0]
+            break_by_whitespace = strip_extension.split()
+            break_by_underscore = []
+            for this_section in break_by_whitespace:
+                break_by_underscore = break_by_underscore + this_section.split('_')
+            break_by_hyphen = []
+            for this_section in break_by_underscore:
+                break_by_hyphen = break_by_hyphen + this_section.split('-')
+            tokens = break_by_hyphen
+            return tokens
+
+        # compile file list
+
+        image_carrier_path = self.location + '/Deliverables/Image_Carriers'
+
+        files = {}
+        for this_tuple in os.walk(image_carrier_path):
+            this_dir = this_tuple[0]
+            if this_dir[0] != '.':  # ignore dot directories
+                these_files = this_tuple[2]
+                for this_file in these_files:
+                    if this_file[0] != '.':  # ignore dot files and hidden stores
+                        this_filepath = this_dir + '/' + this_file
+                        files[this_filepath] = {}
+                        files[this_filepath]['name'] = this_file
+                        files[this_filepath]['modified'] = os.path.getmtime(this_filepath)
+                        files[this_filepath]['tokens'] = tokenize(this_file)
+                        files[this_filepath]['keep'] = True
+
+        # clean out not image carriers from the deletion lists
+
+        for this_filepath in files.keys():
+            is_len = files[this_filepath]['name'].rsplit('.')[-1].lower() == 'len'
+            is_tif = files[this_filepath]['name'].rsplit('.')[-1].lower() == 'tif'
+            is_tiff = files[this_filepath]['name'].rsplit('.')[-1].lower() == 'tiff'
+            if not(is_len or is_tif or is_tiff):
+                try:
+                    files.pop(this_filepath, None)
+                except:
+                    pass
+
+        # check for a matching job number token, if not there don't keep
+
+        for this_filepath in files.keys():
+            if not (str(self.job_number) in files[this_filepath]['tokens']):
+                files[this_filepath]['keep'] = False
+
+        # accumulate color tokens
+
+        color_tokens = {}
+        for this_filepath in files.keys():
+            if files[this_filepath]['keep']:
+                color = files[this_filepath]['tokens'][-1]  # last token should be esko's ink color
+                if not (color in color_tokens.keys()):  # color token not yet created
+                    color_tokens[color] = []
+                    color_tokens[color].append(this_filepath)
+                else:
+                    color_tokens[color].append(this_filepath)
+
+        for this_color in color_tokens.keys():  # with each color
+            if len(color_tokens[this_color]) > 1:  # if there are more than one file
+                dates = []  # for sorting
+                file_by_dates = {}  # reverse lookup to files
+                for this_filepath in color_tokens[this_color]:  # for each filepath in a color
+                    dates.append(files[this_filepath]['modified'])  # append the date to the sorting list
+                    file_by_dates[
+                        files[this_filepath]['modified']] = this_filepath  # add the filepath to the reverse lookup table
+                dates.sort()  # sort the dates
+                files[file_by_dates[dates.pop()]]['keep'] = True  # pop the highest from the sort stack and keep that file
+                while dates:
+                    files[file_by_dates[dates.pop()]]['keep'] = False  #set the others to drop
+
+        # check for single token, do this last in case the other tests have marked the file for deletion
+
+        for this_filepath in files.keys():
+            if len(files[this_filepath]['tokens']) <= 2:
+                files[this_filepath]['keep'] = True
+
+        # using the keep field, dump the dead files
+
+        for this_filepath in files.keys():
+            if not (files[this_filepath]['keep']):
+                try:
+                    os.remove(this_filepath)
+                except:
+                    pass
+
         self.clean = True
 
     def inspect(self):
@@ -728,7 +835,7 @@ def create_disc():
             os.mkdir(generate_disc_url(new_disc))
             disc_catalog[new_disc]['path'] = generate_disc_url(new_disc)
             disc_catalog[new_disc]['size'] = 0
-            log_buffer.append('Created new disc foolder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
+            log_buffer.append('Created new disc folder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
         except:
             log_buffer.append(
                 'Unable to create new disc folder: {0} at {1}\n'.format(new_disc, generate_disc_url(new_disc)))
@@ -816,10 +923,10 @@ if __name__ == "__main__":
     for this_disc in mngr.disc_catalog:
         print('Disc: {0}, @:{1}\n'.format(this_disc.disc_number, this_disc.location))
 
-
     # code for bucketing the jobs
     for this_job in mngr.job_list:
         if not this_job.ignore and not this_job.is_archived:
+            this_job.cleanup()
             this_job.archive = Archive(this_job)
             for this_file in this_job.archive.files:
                 index = 0
