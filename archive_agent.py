@@ -35,7 +35,7 @@ II. With that List do the following:
 
 
 """
-import openpyxl, os, time, subprocess, shutil, re
+import openpyxl, os, time, subprocess, shutil, re, datetime
 
 __author__ = 'Benjamin A. Slack, iam@niamjneb.com'
 __version__ = '0.0.0.1'
@@ -345,7 +345,10 @@ class Log:
     def __init__(self, path):
         self.path = path
         self.name = self.path.rsplit('/')[-1]
-        self.size = get_size(self.path)
+        try:
+            self.size = get_size(self.path)
+        except:
+            self.size = 0
         self.file = open(path, 'a+', 1)
 
 
@@ -356,7 +359,7 @@ class Log:
         self.file.close()
 
     def add(self, string):
-        self.file.write()
+        self.file.write(string)
 
 
 
@@ -439,6 +442,26 @@ class Manager:
             disc_numbers.append(this_disc.disc_number)
         disc_numbers.sort()
         return disc_numbers[-1]
+
+    def update_workbook(self):
+        ws = self.wb.active
+        c, c2 = 1, 5
+
+        for this_row in range(1, ws.max_row + 1):
+            try:
+                job_number = int(ws.cell(row=this_row, column=c))
+            except:
+                continue
+            for this_job in self.job_list:
+                if this_job.job_number == job_number:
+                    disc_entry = ''
+                    for this_file in this_job.archive.files:
+                        disc_entry += '{0},'.format(str(this_file.in_disc.disc_number))
+                    ws.cell(row=this_row, column=c2, value=disc_entry[1:-1])
+
+        wb.save()
+
+
 
 
 
@@ -984,10 +1007,16 @@ def dump_list_to_excel(url):
 
 if __name__ == "__main__":
     mngr = Manager(kURL)
+    dt = datetime.date.today()
+    lg = Log(kWorkingPath+kSep+'Log_{0}-{1}-{2}.txt'.format(dt.month, dt.day, dt.year))
     for this_job in mngr.job_list:
-        print('Job: {0}, @:{1}\n'.format(this_job.job_number, this_job.location))
+        job_entry = 'Job: {0}, @:{1}\n'.format(this_job.job_number, this_job.location)
+        print(job_entry)
+        lg.add(job_entry)
     for this_disc in mngr.disc_catalog:
-        print('Disc: {0}, @:{1}\n'.format(this_disc.disc_number, this_disc.location))
+        disc_entry = 'Disc: {0}, @:{1}\n'.format(this_disc.disc_number, this_disc.location)
+        print(disc_entry)
+        lg.add(disc_entry)
 
     # code for bucketing the jobs
     for this_job in mngr.job_list:
@@ -1011,6 +1040,9 @@ if __name__ == "__main__":
                     this_file.add2disc(new_disc)
 
     # code for cleaning up the directory and adding disk tags
+
+    # code for updating the excel doc
+    mngr.update_workbook()
 
 
 
