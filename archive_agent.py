@@ -35,7 +35,7 @@ II. With that List do the following:
 
 
 """
-import openpyxl, os, time, subprocess, shutil
+import openpyxl, os, time, subprocess, shutil, re
 
 __author__ = 'Benjamin A. Slack, iam@niamjneb.com'
 __version__ = '0.0.0.1'
@@ -130,6 +130,15 @@ class Job:
                         files[this_filepath]['tokens'] = tokenize(this_file)
                         files[this_filepath]['keep'] = True
 
+        # TODO: need to trap for "c###" in the last token
+
+        pattern = 'c\d+'
+        for this_filepath in files.keys():
+            is_c_token = re.search(pattern, files[this_filepath]['tokens'][-1])
+            if is_c_token:
+                files[this_filepath]['tokens'].pop()
+
+
         # clean out not image carriers from the deletion lists
 
         for this_filepath in files.keys():
@@ -145,8 +154,11 @@ class Job:
         # check for a matching job number token, if not there don't keep
 
         for this_filepath in files.keys():
-            if not (str(self.job_number) in files[this_filepath]['tokens']):
-                files[this_filepath]['keep'] = False
+            files[this_filepath]['keep'] = False
+            for this_token in files[this_filepath]['tokens']:
+                pattern = '.*{0}.*'.format(str(self.job_number))
+                job_number_in_token = re.search(pattern, this_token)
+                files[this_filepath]['keep'] = files[this_filepath]['keep'] or bool(job_number_in_token)
 
         # accumulate color tokens
 
@@ -204,7 +216,8 @@ class Job:
         except:
             pass
 
-        if len(dirs) == 1:  #could mean a disc folder already exists
+        '''
+        f len(dirs) == 1:  #could mean a disc folder already exists
             try:
                 disc = int(dirs[0].lower().strip('disk#'))  #try to extract a disk number from the single directory
             except:
@@ -213,21 +226,55 @@ class Job:
             # if we get here, a disc got recognized and we need to make sure it goes into the excel file
             self.is_archived = True
             self.on_disc = disc
+        '''
 
-        elif len(dirs) == 0:
+        disc_folders = []
+        pattern = '([dD]+is[ck]+)(\s*[#]?)(\d+)'
+        for this_dir in dirs:
+            is_disc_folder = re.search(pattern, this_dir)
+            if is_disc_folder:
+                disc_folders.append(int(is_disc_folder.groups()[-1]))
+
+        if len(disc_folders) > 0:
+            disc_folders.sort()
+
+            highest_disc = disc_folders[-1]
+
+            '''
+            jobs will not be spread over discs with large differences in their number.
+            therefore, discard if > threshold
+            '''
+
+            threshold = 10
+            for this_disc in disc_folders:
+                if highest_disc - this_disc >= threshold:
+                    disc_folders.remove(this_disc)
+
+            if len(dirs) == len(disc_folders) and len(dirs) > 0:
+                #  job has been archived
+                self.is_archived = True
+                self.on_disc = disc_folders
+            elif len(dirs) > len(disc_folders) and len(dirs) > 0:
+                #  job has directories other than disc folders, archive the job
+                self.is_archived = False
+                self.ignore = False
+            else:
+                # job has fewer directories than it does disc folders, this can not happen
+                try:
+                    raise Exception('Job inspection failed. More disc folders than directories in job.')
+                except:
+                    self.ignore = True
+
+        if len(dirs) == 0:
             try:
                 raise Exception('Job Folder Is Empty.')  #no directories means something is wrong, get a human
             except:
                 self.ignore = True
-        else:
-            self.is_archived = False
-            self.ignore = False
 
 
 class File:
     def __init__(self, url):
         self.location = url
-        print(repr(url))
         self.name = url.rsplit('/',1)[1]
         self.size = get_size(url)
         self.is_placed = False
@@ -293,6 +340,25 @@ class Disc:
         else:
             self.is_full = False
         self.contents = os.listdir(self.location)
+
+class Log:
+    def __init__(self, path):
+        self.path = path
+        self.name = self.path.rsplit('/')[-1]
+        self.size = get_size(self.path)
+        self.file = open(path, 'a+', 1)
+
+
+    def open(self):
+        self.file = open(path, 'a+', 1)
+
+    def close(self):
+        self.file.close()
+
+    def add(self, string):
+        self.file.write()
+
+
 
 class Manager:
     def __init__(self, url):
@@ -943,6 +1009,8 @@ if __name__ == "__main__":
                     new_disc = Disc(new_disc_number)
                     mngr.disc_catalog.append(new_disc)
                     this_file.add2disc(new_disc)
+
+    # code for cleaning up the directory and adding disk tags
 
 
 
