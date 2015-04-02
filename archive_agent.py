@@ -40,7 +40,7 @@ import openpyxl, os, time, subprocess, shutil, re, datetime
 __author__ = 'Benjamin A. Slack, iam@niamjneb.com'
 __version__ = '0.0.0.1'
 
-#kBaseJobsPath = '/Volumes/JobsA'
+# kBaseJobsPath = '/Volumes/JobsA'
 kBaseJobsPath = os.path.expanduser('~/tmp/JobsA')
 #kBaseDisksPath = '/Volumes/SGB-TITAN/_ReadyForBackup'
 kBaseDisksPath = os.path.expanduser('~/tmp/Staging')
@@ -56,6 +56,7 @@ kSep = '/'
 #kURL = kPath + kSep + kFileName
 kURL = os.path.expanduser('~/tmp/Logs/test.xlsx')
 dt = datetime.date.today()
+
 
 class Job:
     def __init__(self, job_number):
@@ -78,6 +79,21 @@ class Job:
             return True
         except:
             lg.add('Job: {0}, unable to delete job folder @: {1}\n'.format((self.job_number, self.location)))
+            return False
+
+    def tag(self):
+        try:
+            tags = []
+            for this_file in self.archive.files:
+                tags.append(this_file.in_disc.disc_number)
+            tags.sort()
+            for this_tag in tags:
+                path = self.location + kSep + kDiscFolderPrefix + str(this_tag).zfill(4)
+                os.makedirs(path)
+                lg.add('Tagged Job: {0}, with Disc: {1}.\n'.format(self.job_number, this_tag))
+            return True
+        except:
+            lg.add('Unable to tag Job: {0}, please investigate.\n'.format(self.job_number))
             return False
 
 
@@ -148,7 +164,7 @@ class Job:
             is_len = files[this_filepath]['name'].rsplit('.')[-1].lower() == 'len'
             is_tif = files[this_filepath]['name'].rsplit('.')[-1].lower() == 'tif'
             is_tiff = files[this_filepath]['name'].rsplit('.')[-1].lower() == 'tiff'
-            if not(is_len or is_tif or is_tiff):
+            if not (is_len or is_tif or is_tiff):
                 try:
                     files.pop(this_filepath, None)
                 except:
@@ -182,9 +198,11 @@ class Job:
                 for this_filepath in color_tokens[this_color]:  # for each filepath in a color
                     dates.append(files[this_filepath]['modified'])  # append the date to the sorting list
                     file_by_dates[
-                        files[this_filepath]['modified']] = this_filepath  # add the filepath to the reverse lookup table
+                        files[this_filepath][
+                            'modified']] = this_filepath  # add the filepath to the reverse lookup table
                 dates.sort()  # sort the dates
-                files[file_by_dates[dates.pop()]]['keep'] = True  # pop the highest from the sort stack and keep that file
+                files[file_by_dates[dates.pop()]][
+                    'keep'] = True  # pop the highest from the sort stack and keep that file
                 while dates:
                     files[file_by_dates[dates.pop()]]['keep'] = False  #set the others to drop
 
@@ -268,11 +286,14 @@ class Job:
             except:
                 self.ignore = True
                 lg.add('Job: {0}, is empty. Ignoring.\n'.format(self.job_number))
+        elif len(disc_folders) == 0:
+            lg.add('Job: {0}, will be archived.\n'.format(self.job_number))
+
 
 class File:
     def __init__(self, url):
         self.location = url
-        self.name = url.rsplit('/',1)[1]
+        self.name = url.rsplit('/', 1)[1]
         self.size = get_size(url)
         self.is_placed = False
         self.in_disc = False
@@ -290,6 +311,7 @@ class File:
             self.location = disc.location + kSep + self.name
             lg.add('File: {0}, placed @: {1}\n'.format(self.name, self.location))
             return True
+
 
 class Archive:
     def __init__(self, job):
@@ -324,6 +346,7 @@ class Archive:
         job.is_archived = True
         job.archive = self
 
+
 class Disc:
     def __init__(self, disc_number):
         self.disc_number = disc_number
@@ -341,6 +364,7 @@ class Disc:
         else:
             self.is_full = False
         self.contents = os.listdir(self.location)
+
 
 class Log:
     def __init__(self, path):
@@ -360,8 +384,8 @@ class Log:
         self.file.close()
 
     def add(self, string):
+        print(string)
         self.file.write(string)
-
 
 
 class Manager:
@@ -388,7 +412,7 @@ class Manager:
         max_col = ws.max_column
 
         r, c, c2 = 1, 1, 5
-
+        parsed_jobs = []
         while r < max_row:
             try:
                 job_number = int(ws.cell(row=r, column=c).value)  # first entry is a job number
@@ -396,12 +420,12 @@ class Manager:
                 r += 1
                 continue
             if not (ws.cell(row=r, column=c2).value):  # disc already attached to job
-                parsed_jobs = []
                 # check for double entries
-                for this_job in self.job_list:
-                    parsed_jobs.append(this_job.job_number)
-                if parsed_jobs.count(job_number) == 0:
+                if not (job_number in parsed_jobs):
                     self.job_list.append(Job(job_number))
+                    parsed_jobs.append(job_number)
+                else:
+                    lg.add('Duplicate Entry for Job: {0} found. Skipping Entry @ row: {1}\n'.format(job_number, r))
             r += 1
         return True
 
@@ -465,8 +489,9 @@ class Manager:
                     else:  # was archived
                         for this_file in this_job.archive.files:
                             disc_entry += '{0},'.format(str(this_file.in_disc.disc_number))
-                    ws.cell(row = this_row, column = c2).value = disc_entry[0:-1]
+                    ws.cell(row=this_row, column=c2).value = disc_entry[0:-1]
         self.wb.save(self.excel_url)
+
 
 def generate_job_url(job):
     """
@@ -516,7 +541,8 @@ def get_size(path):
         total_size = os.path.getsize(path)
     return total_size
 
-lg = Log(kWorkingPath+kSep+'Log_{0}-{1}-{2}.txt'.format(dt.month, dt.day, dt.year))
+
+lg = Log(kWorkingPath + kSep + 'Log_{0}-{1}-{2}.txt'.format(dt.month, dt.day, dt.year))
 
 if __name__ == "__main__":
     mngr = Manager(kURL)
@@ -530,7 +556,7 @@ if __name__ == "__main__":
                 index = 0
                 while index < len(mngr.disc_catalog):
                     try:
-                        if not(this_file.add2disc(mngr.disc_catalog[index])):
+                        if not (this_file.add2disc(mngr.disc_catalog[index])):
                             index += 1
                         else:
                             break
@@ -544,6 +570,35 @@ if __name__ == "__main__":
         lg.file.flush()
 
     # code for cleaning up the directory and adding disk tags
+    accepted_inputs = ['y', 'n', 'a']
+    selection = None
+    while not (selection in accepted_inputs):
+        selection = raw_input('Proceed with job dumps and folder tagging? (y/n/a):')
+        selection = str(selection).lower()
+        if not (selection in accepted_inputs):
+            print('Selection Invalid, please select (y/n/a).\n')
+
+    if selection != 'n':
+        for this_job in mngr.job_list:
+            if not (this_job.on_disc) and not (this_job.ignore):
+                if selection == 'y':
+                    confirm = None
+                    confirm_inputs = ['y', 'n']
+                    while not (confirm in confirm_inputs):
+                        confirm = raw_input('Delete Job: {0} @ {1}? (y/n): '.format(this_job.job_number, this_job.location))
+                        confirm = str(confirm).lower()
+                        if not (confirm in confirm_inputs):
+                            print('Selection not recognized. Please enter (y/n).\n')
+                    if confirm == 'y':
+                        this_job.dump()
+                        this_job.tag()
+                    else:
+                        continue
+                elif selection == 'a':
+                    this_job.dump()
+                    this_job.tag()
+    else:
+        lg.add('Leaving jobs on server.\n')
 
     # code for updating the excel doc
     mngr.update_workbook()
